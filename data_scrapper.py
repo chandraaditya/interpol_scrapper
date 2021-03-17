@@ -1,9 +1,12 @@
 import json
 import re
 import timeit
-from string import ascii_lowercase
-
+import os
+import filetype
+import wget
 import requests
+
+from string import ascii_lowercase
 from halo import Halo
 
 
@@ -20,6 +23,45 @@ def parseUrlGender(gen, age, ageMax):
 def parseUrlAge(age, ageMax):
     return "https://ws-public.interpol.int/notices/v1/red?ageMin=" + str(
         age) + "&ageMax=" + str(ageMax) + "&resultPerPage=160"
+
+
+def scrap_images():
+    spinner = Halo(text='parsing json\n', spinner='dots')
+    spinner.start()
+
+    with open("results.json") as f:
+        data = json.load(f)
+
+    spinner.text = 'done parsing json\n'
+    persons = data['persons']
+    num_persons = len(persons)
+
+    try:
+        os.mkdir('images')
+    except:
+        pass
+
+    session = requests.Session()
+    i = 1
+    for person in persons:
+        try:
+            url = person['other']['_links']['images']['href']
+            entity_id = person['other']['entity_id'].replace('/', '-')
+            spinner.text = 'fetching ' + str(i) + '/' + str(num_persons) + '(' + str(
+                round(((i / num_persons) * 100), 2)) + '%) ' + entity_id + '\n'
+            data = session.get(url).json()
+            i += 1
+            for img_link in data['_embedded']['images']:
+                link = img_link['_links']['self']['href']
+                file = wget.download(link)
+                kind = filetype.guess(file)
+                if kind is None:
+                    os.remove(file)
+                else:
+                    os.rename(file, 'images/' + entity_id + '-' + file + '.' + kind.extension)
+        finally:
+            continue
+    spinner.stop()
 
 
 def main():
@@ -60,7 +102,7 @@ def main():
 
     url_set = set()
 
-    for age in range(0, 121):
+    for age in range(0, 20):
         url = parseUrlAge(age, age)
         spinner.text = 'fetched ' + str(total_fetched) + '/' + str(total_expected_results) + '(' + str(
             round((total_fetched / total_expected_results) * 100, 2)) + '%), ' + url.replace(
@@ -153,13 +195,17 @@ def main():
         i += 1
 
     spinner.text = 'writing to results.json'
+
     with open('results.json', 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
-    stop = timeit.default_timer()
     spinner.stop()
-    print('Time: ', stop - start)
 
+    scrap_images()
+
+    stop = timeit.default_timer()
+
+    print('Time: ', stop - start)
     print('Total queries processed ', len(data['persons']))
 
 
